@@ -1,9 +1,9 @@
 {
     "generic": {
-        "copyright": "",
-        "original-url": "",
-        "license": "",
+        "copyright": "Aksel Meola",
+        "original-url": "https://github.com/AkselMeola/eu_meola_json_deck",
+        "license": "MIT",
         "license-url": "",
-        "description": ""
+        "description": "Interpret JSON data as a stream deck action"
     }
 }

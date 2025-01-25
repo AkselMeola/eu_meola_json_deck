@@ -1,6 +1,6 @@
 {
-    "version": "",
-    "thumbnail": "",
-    "id": "",
-    "name": ""
+    "version": "0.1.0",
+    "thumbnail": "assets/logo.png",
+    "id": "eu_meola_json_deck",
+    "name": "JSON-deck"
 }
