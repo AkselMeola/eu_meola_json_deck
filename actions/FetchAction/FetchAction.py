@@ -9,6 +9,8 @@ import os
 import threading
 import requests
 import json
+import tempfile
+import subprocess
 
 from loguru import logger as log
 
@@ -49,13 +51,26 @@ class FetchAction(ActionBase):
     def on_ready(self) -> None:
         icon_path = os.path.join(self.plugin_base.PATH, "assets", "logo.png")
         self.set_media(media_path=icon_path, size=0.75)
+        self.start_timer()
         
     def on_key_down(self) -> None:
         self.do_fetch()
-        print("Key down")
-    
-    def on_key_up(self) -> None:
-        print("Key up")
+        #print("Key down")
+
+    def stop_timer(self):
+        if self.auto_run_timer is not None:
+            self.auto_run_timer.cancel()
+
+    def start_timer(self):
+        self.stop_timer()
+        settings = self.get_settings()
+        if settings.get("auto_run", 0) <= 0:
+            return
+        self.auto_run_timer = threading.Timer(settings.get("auto_run", 0), self.do_fetch)
+        self.auto_run_timer.start()
+
+    #def on_key_up(self) -> None:
+    #    print("Key up")
 
     def get_config_rows(self) -> list:
         self.path_entry = Adw.EntryRow(title="URL, Path to file or command")
@@ -85,7 +100,7 @@ class FetchAction(ActionBase):
         settings = self.get_settings()
         settings["auto_run"] = spinner.get_value()
         self.set_settings(settings)
-
+        self.start_timer()
 
     def get_exec_path(self):
         settings = self.get_settings()
@@ -102,6 +117,7 @@ class FetchAction(ActionBase):
         else:
             return self.fetch_from_cmd(execPath)
 
+    # Fetch from a Web URL
     def fetch_from_url(self, url):
         if url in ["", None]:
             self.show_error(duration=1)
@@ -115,21 +131,43 @@ class FetchAction(ActionBase):
 
         return None
 
+    # Fetch contents of a file
     def fetch_from_file(self, path):
-        pass
+        try:
+            with open(path, 'r', encoding='utf-8') as file:
+                content = file.read()  # Read the entire file content
+            return content
+        except FileNotFoundError:
+            log.error("File not found:" + path)
+            return None
+        except IOError as e:
+            log.error(e)
+            return None
 
+    # Run the command and capture the output
     def fetch_from_cmd(self, cmd):
-        pass
+        if self.is_in_flatpak():
+            cmd = "flatpak-spawn --host " + cmd
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=True)
+            return result.stdout
+        except subprocess.CalledProcessError as e:
+            log.error(e)
+            return None
+
+    def is_in_flatpak(self) -> bool:
+        return os.path.isfile('/.flatpak-info')
 
     def do_fetch(self):
+        self.start_timer()
+
         exec_path = self.get_exec_path()
         result = self.process_exec_path(exec_path)
 
         if result in ["", None]:
             self.show_error(duration=1)
             return
-
-        data = None
 
         try:
             data = json.loads(result)
@@ -144,6 +182,9 @@ class FetchAction(ActionBase):
             frames=[Frame(**frame) for frame in data['frames']]
         )
 
+        self.frame_index = 0
+        self.n_ticks = 0
+
         self.do_show()
 
     def do_show(self):
@@ -152,6 +193,7 @@ class FetchAction(ActionBase):
 
         frame = self.action_frames.frames[self.frame_index] or None
         if frame is None:
+            log.error("Frame not found")
             return
 
         # Set labels
@@ -162,6 +204,8 @@ class FetchAction(ActionBase):
         if frame.bottom_label is not None:
             self.set_bottom_label(frame.bottom_label)
 
+        if frame.media_path is not None:
+            self.process_image_path(frame.media_path)
 
     def on_tick(self):
         if self.action_frames is None:
@@ -181,4 +225,32 @@ class FetchAction(ActionBase):
             self.do_show()
 
         self.n_ticks += 1
+
+    def download_from_url(self, url, target_path):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Ensure we raise an error for invalid responses
+            with open(target_path, 'wb') as f:
+                f.write(response.content)
+            return target_path
+        except requests.exceptions.RequestException as e:
+            return None
+
+    def process_image_path(self, value):
+        # Check if the value is a path to a file
+        if os.path.isfile(value):
+            self.set_media(media_path=value)
+        # Check if the value is a URL
+        elif value.startswith(('http://', 'https://')):
+            # Create a temp directory to save the file
+            filename = "jsondeck_" + os.path.basename(value)  # Extract the filename from the URL
+            tmp_dir = tempfile.gettempdir()
+            target_path = os.path.join(tmp_dir, filename)
+
+            # Skip downloading if the file already exists in the temp directory
+            if not os.path.exists(target_path):
+                self.download_from_url(value, target_path)
+
+            if os.path.isfile(target_path):
+                self.set_media(media_path=target_path)
 
