@@ -23,18 +23,20 @@ from gi.repository import Gtk, Adw
 
 from dataclasses import dataclass
 from typing import List
+from typing import Optional
+
 
 @dataclass
 class Frame:
-    top_label: str
-    center_label: str
-    bottom_label: str
-    media_path: str
+    top_label: Optional[str] = None
+    center_label: Optional[str] = None
+    bottom_label: Optional[str] = None
+    media_path: Optional[str] = None
 
 @dataclass
 class ActionFrames:
-    frame_duration: int
     frames: List[Frame]
+    frame_duration: Optional[int] = None
 
 class FetchAction(ActionBase):
     def __init__(self, *args, **kwargs):
@@ -52,10 +54,30 @@ class FetchAction(ActionBase):
         icon_path = os.path.join(self.plugin_base.PATH, "assets", "logo.png")
         self.set_media(media_path=icon_path, size=0.75)
         self.start_timer()
+        self.do_fetch()
         
     def on_key_down(self) -> None:
         self.do_fetch()
-        #print("Key down")
+
+    def on_tick(self):
+        if self.action_frames is None:
+            return
+
+        duration = self.action_frames.frame_duration
+        if duration in [0, None]:
+            duration = 30 # Set default duration of 30 tics
+
+        # Cycle frame after N tics
+        if self.n_ticks % duration == 0:
+            self.n_ticks = 0
+            self.frame_index += 1
+            if self.frame_index >= len(self.action_frames.frames):
+                self.frame_index = 0
+
+            self.do_show()
+
+        self.n_ticks += 1
+
 
     def stop_timer(self):
         if self.auto_run_timer is not None:
@@ -207,25 +229,8 @@ class FetchAction(ActionBase):
         if frame.media_path is not None:
             self.process_image_path(frame.media_path)
 
-    def on_tick(self):
-        if self.action_frames is None:
-            return
 
-        duration = self.action_frames.frame_duration
-        if duration in [0, None]:
-            duration = 30 # Set default duration of 30 tics
-
-        # Cycle frame after N tics
-        if self.n_ticks % duration == 0:
-            self.n_ticks = 0
-            self.frame_index += 1
-            if self.frame_index >= len(self.action_frames.frames):
-                self.frame_index = 0
-
-            self.do_show()
-
-        self.n_ticks += 1
-
+    # TODO: Use Content-Disposition header to detect original file name
     def download_from_url(self, url, target_path):
         try:
             response = requests.get(url)

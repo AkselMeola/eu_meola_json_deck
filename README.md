@@ -43,5 +43,7 @@ Once you implement the protocol, then you can develop your action in any program
 ## TODO: 
 
  - [ ] Documentation - usage examples
- - [ ] Button action payload - command, browser, refresh
- 
+ - [ ] Implement button action payload - command, browser, refresh
+ - [ ] Add option to always re-download image
+ - [ ] Pack in some pre-rendered gauges for easy use. E.g. use prefix: asset:/path/to/asset.png 
+ - [ ] Implement a background color change using `set_background_color()`
