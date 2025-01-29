@@ -38,10 +38,12 @@ class ActionFrames:
     frames: List[Frame]
     frame_duration: Optional[int] = None
 
+# FIXME: Move the parsing and execution logic to separate class which returns ActionFrames object
 class FetchAction(ActionBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.always_download_img = None
         self.path_entry = None
         self.auto_run_spinner = None
         self.auto_run_timer: threading.Timer = None
@@ -100,23 +102,29 @@ class FetchAction(ActionBase):
         self.auto_run_spinner.set_title("Auto run (s)")
         self.auto_run_spinner.set_subtitle("Set 0 to disable")
 
+        self.always_download_img = Adw.SwitchRow(title="Always re-download images")
+
         self.load_config_defaults()
 
         # Connect signals
         self.path_entry.connect("notify::text", self.on_path_changed)
         self.auto_run_spinner.connect("notify::value", self.on_auto_run_changed)
+        self.always_download_img.connect("notify::active", self.on_always_download_img_changed)
 
-        return [self.path_entry, self.auto_run_spinner]
+        return [self.path_entry, self.auto_run_spinner, self.always_download_img]
 
     def load_config_defaults(self):
         settings = self.get_settings()
         self.path_entry.set_text(settings.get("path", "")) # Does not accept None
         self.auto_run_spinner.set_value(settings.get("auto_run", 0))
+        self.always_download_img.set_active(settings.get("always_download_img", False))
 
     def on_path_changed(self, entry, *args):
         settings = self.get_settings()
         settings["path"] = entry.get_text()
         self.set_settings(settings)
+
+        self.do_fetch()
 
     def on_auto_run_changed(self, spinner, *args):
         settings = self.get_settings()
@@ -124,9 +132,22 @@ class FetchAction(ActionBase):
         self.set_settings(settings)
         self.start_timer()
 
+        self.do_fetch()
+
+    def on_always_download_img_changed(self, *args):
+        settings = self.get_settings()
+        settings["always_download_img"] = self.always_download_img.get_active()
+        self.set_settings(settings)
+
+        self.do_fetch()
+
     def get_exec_path(self):
         settings = self.get_settings()
         return settings.get("path", "")
+
+    def get_always_download_img(self):
+        settings = self.get_settings()
+        return settings.get("always_download_img", False)
 
     def process_exec_path(self, execPath):
         # Check if execPath is a web URL
@@ -172,7 +193,11 @@ class FetchAction(ActionBase):
             cmd = "flatpak-spawn --host " + cmd
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, shell=True, check=True, cwd=os.path.expanduser("~"))
+            # result = subprocess.Popen(cmd, shell=True, start_new_session=True, text=True, stdout=subprocess.PIPE,
+            #                           cwd=os.path.expanduser(
+            #                               "~"))  # If cwd is not set in the flatpak /app/bin/StreamController cannot be found
+
             return result.stdout
         except subprocess.CalledProcessError as e:
             log.error(e)
@@ -253,9 +278,9 @@ class FetchAction(ActionBase):
             target_path = os.path.join(tmp_dir, filename)
 
             # Skip downloading if the file already exists in the temp directory
-            if not os.path.exists(target_path):
+            if not os.path.exists(target_path) or self.get_always_download_img():
                 self.download_from_url(value, target_path)
 
             if os.path.isfile(target_path):
-                self.set_media(media_path=target_path)
+                self.set_media(media_path=target_path, update=True)
 
